@@ -1,13 +1,19 @@
-# Data processing functions
 import numpy as np
 import pandas as pd
+import json
 
 # ### Initialisation
 
-# Read/write csv files
+# Read/write dataset csv files
 def read_raw_csv():
     path = "datasets/raw/raw.csv"
     print(f"Loading raw data from {path}")
+    return pd.read_csv(path, header=[0, 1], index_col=0)
+
+
+def read_baseline_csv():
+    path = "datasets/processed/baseline.csv"
+    print(f"Loading baseline data from {path}")
     return pd.read_csv(path, header=[0, 1], index_col=0)
 
 
@@ -21,6 +27,24 @@ def write_processed_csv(dataset, filename):
     path = f"datasets/processed/{filename}.csv"
     dataset.to_csv(path)
     print(f"Dataset saved to {path}")
+
+
+
+# Read/write model json files
+def read_model_json(filename):
+    path = f"models/{filename}.json"
+    print(f"Loading model from {path}")
+    with open(path) as model_file:
+        model = json.load(model_file)
+    return model
+
+
+def write_model_json(model, filename):
+    path = f"models/{filename}.json"
+    with open(path, "w") as model_file:
+        json.dump(model, model_file, indent=4)
+    print(f"Model saved to {path}")
+
 
 
 # Read and anonymise Excel data into DataFrame

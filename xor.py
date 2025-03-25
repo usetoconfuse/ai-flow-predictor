@@ -1,11 +1,12 @@
 import training as trn
-import data_processing as dp
-import numpy as np
+import pandas as pd
 
-data = np.array([[0, 0, 0], [0, 1, 1], [1, 0, 1], [1, 1, 0]])
+
+# Basic XOR model to demonstrate working backpropagation
+
+xor_data = pd.DataFrame([[0, 0, 0], [0, 1, 1], [1, 0, 1], [1, 1, 0]])
 
 network = trn.initialise_network(2, 1, 4)
-for i in range(10000):
-    network = trn.train(network, data, 0.1)
+network = trn.train(network, xor_data, 0.1, 10000)
 
-trn.predict(network, data)
+print(trn.predict(network, xor_data))
