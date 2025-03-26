@@ -1,4 +1,5 @@
 import data_processing as dp
+import numpy as np
 
 # ============================== CONFIG ===============================================
 
@@ -9,7 +10,7 @@ std_range = (0.1, 0.9)
 dataset_split = (0.6, 0.2, 0.2)
 
 # Name of the file to save the dataset in
-dataset_name = "baseline"
+dataset_name = "firstimproved"
 
 
 # ============================= DATA PROCESSING ========================================
@@ -26,9 +27,20 @@ for col in main_df:
     if col[1][0] != "p":
         main_df = dp.lag_column(main_df, col, 1)
 
+# Cull by 5 std devs
+main_df = dp.cull_by_sd(main_df, 5)
 
 # Drop rows with empty values
 main_df = main_df.dropna()
+
+# Log all flow data
+main_df["f"] = main_df["f"].apply(np.log)
+
+# Sqrt all rainfall data
+main_df["r"] = main_df["r"].apply(np.sqrt)
+
+main_df = main_df.iloc[:, 2:]
+print(main_df.head())
 
 # Split dataset into training, validation and test data at random
 main_df = dp.split_data(main_df, dataset_split[0], dataset_split[1], dataset_split[2])

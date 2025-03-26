@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 
-
 # =========================== INITIALISE A NEURAL NETWORK =======================================
 
 # Generate weights of the neural network
@@ -28,6 +27,31 @@ def initialise_network(inputs, hidden_layers, layer_size):
     network.append(weighted_layer(1, layer_size))
 
     return network
+
+
+
+# ====================== ERROR CALCULATION =======================================
+
+# Calculate root-mean-square error at each epoch
+# for a given output array of modelled values
+def epoch_rmse_calc(predicted_vals, real_vals, p_std_data):
+
+    min_range = p_std_data.loc["min_range"]
+    max_range = p_std_data.loc["max_range"]
+    min_val = p_std_data.loc["min_val"]
+    max_val = p_std_data.loc["max_val"]
+    total_sq_err = 0
+
+    for row in range(len(predicted_vals)):
+        pred = predicted_vals[row]
+        destd_pred = (pred-min_range) / (max_range-min_range) * (max_val-min_val) + min_val
+        real = real_vals[row]
+        destd_real = (real-min_range) / (max_range-min_range) * (max_val-min_val) + min_val
+        error = destd_real - destd_pred
+        total_sq_err += error**2
+
+    mse = total_sq_err / len(predicted_vals)
+    return np.sqrt(mse)
 
 
 
@@ -61,6 +85,15 @@ def forward_pass(network, row):
         u_vals.append(outputs)
 
     return u_vals
+
+
+# Get predicted values from a network over a DataFrame
+def predict(network, data_frame):
+    data_arr = data_frame.to_numpy()
+    pred_arr = []
+    for row in data_arr:
+        pred_arr.append(forward_pass(network, row)[-1][0])
+    return pred_arr
 
 
 # Backpropagation: forward pass and backward pass over every row
@@ -118,42 +151,49 @@ def backpropagate(network, row, lrn):
         new_network.append(new_layer)
 
     # Return the updated network and the output value modelled by the old network
-    return new_network, output
+    return new_network
 
 
 
 # Train a network on given training and validation data
-# Store the output for each row every epoch
-def train(network, trn_data, val_data, lrn, epochs):
+# Store the rmse for each epoch
+def train(network, trn_data, val_data, p_std_data, lrn, epochs):
 
     trn_data_arr = trn_data.to_numpy()
-    trn_output_arr = []
-    val_output_arr = []
+    val_data_arr = val_data.to_numpy()
+    trn_rmse_arr = []
+    val_rmse_arr = []
+
+    prev_rmse_diff = 9999999999
 
     for epoch in range (1, epochs+1):
-        epoch_outputs = []
+
+        trn_predicted_vals = predict(network, trn_data)
+        val_predicted_vals = predict(network, val_data)
+
+        trn_real_vals = trn_data_arr[:, -1]
+        val_real_vals = val_data_arr[:, -1]
+
+        trn_rmse = epoch_rmse_calc(trn_predicted_vals, trn_real_vals, p_std_data)
+        val_rmse = epoch_rmse_calc(val_predicted_vals, val_real_vals, p_std_data)
+
+        trn_rmse_arr.append(trn_rmse)
+        val_rmse_arr.append(val_rmse)
+
+        rmse_diff = abs(val_rmse - trn_rmse)
+        if rmse_diff > prev_rmse_diff and epoch > 50:
+            print(f"Terminated early at epoch {epoch}")
+            return network, trn_rmse_arr, val_rmse_arr
+
+        prev_rmse_diff = rmse_diff
 
         for row in trn_data_arr:
-            network, output = backpropagate(network, row, lrn)
-            epoch_outputs.append(output)
+            network = backpropagate(network, row, lrn)
 
-        trn_output_arr.append(epoch_outputs)
-
-        val_output_arr.append(predict(network, val_data))
-
-        if (epoch % 10) == 0:
+        if (epoch % 100) == 0:
             print(f"{epoch} epochs done")
 
-    return network, trn_output_arr, val_output_arr
-
-
-# Get predicted values from a network over a DataFrame
-def predict(network, data_frame):
-    data_arr = data_frame.to_numpy()
-    pred_arr = []
-    for row in data_arr:
-        pred_arr.append(forward_pass(network, row)[-1][0])
-    return pred_arr
+    return network, trn_rmse_arr, val_rmse_arr
 
 
 
@@ -161,6 +201,6 @@ if __name__ == "__main__":
     data = pd.DataFrame([[1, 0, 1]])
 
     test_network = [[[1, 3, 4], [-6, 6, 5]], [[-3.92, 2, 4]]]
-    test_network, x, y = train(test_network, data, data,0.1, 10000)
+    test_network, x, y = train(test_network, data, data, data,0.1, 10000)
 
     print(f"Trained network prediction: {predict(test_network, data)}")

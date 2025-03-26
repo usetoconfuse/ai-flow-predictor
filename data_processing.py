@@ -1,9 +1,8 @@
 import numpy as np
 import pandas as pd
 import json
-from enum import Enum
 
-# ### Initialisation
+# Initialisation
 
 # Read/write dataset csv files
 def read_raw_csv():
@@ -203,29 +202,3 @@ def destd_predictands_range(data, predictand_std_data):
             (x-min_range) / (max_range-min_range) * (max_val-min_val) + min_val)
 
     return data
-
-
-
-# ====================== ERROR CALCULATION =======================================
-
-# Calculate root-mean-square error at each epoch
-# for a given output array of modelled values
-def rmse_calc(output_arr, data, predictand_std_data):
-    output_df = pd.DataFrame(output_arr)
-    output_df = destd_predictands_range(output_df, predictand_std_data)
-
-    predictand_col = data.loc[:, (slice(None), "p")]
-    predictand_col = destd_predictands_range(predictand_col, predictand_std_data)
-    real_vals = predictand_col.to_numpy()
-
-    rmse_arr = []
-    for epoch in range(len(output_df)):
-        epoch_predictions = output_df.iloc[epoch]
-        total_sq_err = 0
-        for row in range(len(epoch_predictions)):
-            error = real_vals[row][0] - epoch_predictions[row]
-            total_sq_err += error**2
-        mse = total_sq_err / len(epoch_predictions)
-        rmse_arr.append(np.sqrt(mse))
-
-    return rmse_arr
