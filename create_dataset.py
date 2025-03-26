@@ -9,7 +9,7 @@ std_range = (0.1, 0.9)
 dataset_split = (0.6, 0.2, 0.2)
 
 # Name of the file to save the dataset in
-dataset_name = "test"
+dataset_name = "baseline"
 
 
 # ============================= DATA PROCESSING ========================================
@@ -37,5 +37,5 @@ main_df = dp.split_data(main_df, dataset_split[0], dataset_split[1], dataset_spl
 # Appends standardisation metadata rows to the end of the DataFrame
 main_df = dp.std_range(main_df, std_range[0], std_range[1])
 
-# Save dataset to file
+# Save the dataset
 dp.write_processed_csv(main_df, dataset_name)

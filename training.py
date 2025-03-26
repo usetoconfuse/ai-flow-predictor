@@ -63,7 +63,7 @@ def forward_pass(network, row):
     return u_vals
 
 
-
+# Backpropagation: forward pass and backward pass over every row
 def backpropagate(network, row, lrn):
     predictand = row[-1]
 
@@ -121,26 +121,30 @@ def backpropagate(network, row, lrn):
     return new_network, output
 
 
-# Backpropagation: forward pass and backward pass over every row
-# Train a network on a given DataFrame
-def train(network, data_frame, lrn, epochs):
 
-    data_arr = data_frame.to_numpy()
-    output_arr = []
+# Train a network on given training and validation data
+# Store the output for each row every epoch
+def train(network, trn_data, val_data, lrn, epochs):
+
+    trn_data_arr = trn_data.to_numpy()
+    trn_output_arr = []
+    val_output_arr = []
 
     for epoch in range (1, epochs+1):
         epoch_outputs = []
 
-        for row in data_arr:
+        for row in trn_data_arr:
             network, output = backpropagate(network, row, lrn)
             epoch_outputs.append(output)
 
-        output_arr.append(epoch_outputs)
+        trn_output_arr.append(epoch_outputs)
 
-        if (epoch % 100) == 0:
+        val_output_arr.append(predict(network, val_data))
+
+        if (epoch % 10) == 0:
             print(f"{epoch} epochs done")
 
-    return network, output_arr
+    return network, trn_output_arr, val_output_arr
 
 
 # Get predicted values from a network over a DataFrame
@@ -152,10 +156,11 @@ def predict(network, data_frame):
     return pred_arr
 
 
+
 if __name__ == "__main__":
     data = pd.DataFrame([[1, 0, 1]])
 
     test_network = [[[1, 3, 4], [-6, 6, 5]], [[-3.92, 2, 4]]]
-    test_network, x = train(test_network, data, 0.1, 10000)
+    test_network, x, y = train(test_network, data, data,0.1, 10000)
 
     print(f"Trained network prediction: {predict(test_network, data)}")
