@@ -7,6 +7,6 @@ import pandas as pd
 xor_data = pd.DataFrame([[0, 0, 0], [0, 1, 1], [1, 0, 1], [1, 1, 0]])
 
 network = trn.initialise_network(2, 1, 4)
-network = trn.train(network, xor_data, 0.1, 10000)
+network, x = trn.train(network, xor_data, 0.1, 10000)
 
 print(trn.predict(network, xor_data))

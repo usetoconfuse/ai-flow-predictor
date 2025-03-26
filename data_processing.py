@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import json
+from enum import Enum
 
 # ### Initialisation
 
@@ -11,21 +12,18 @@ def read_raw_csv():
     return pd.read_csv(path, header=[0, 1], index_col=0)
 
 
-def read_baseline_csv():
-    path = "datasets/processed/baseline.csv"
-    print(f"Loading baseline data from {path}")
-    return pd.read_csv(path, header=[0, 1], index_col=0)
-
 
 def read_processed_csv(filename):
     path = f"datasets/processed/{filename}.csv"
     print(f"Loading processed data from {path}")
-    return pd.read_csv(path, header=[0,1], index_col=[0,1])
+    frame = pd.read_csv(path, header=[0, 1], index_col=[0, 1])
+    return frame
 
 
-def write_processed_csv(dataset, filename):
+
+def write_processed_csv(data, filename):
     path = f"datasets/processed/{filename}.csv"
-    dataset.to_csv(path)
+    data.to_csv(path)
     print(f"Dataset saved to {path}")
 
 
@@ -39,10 +37,11 @@ def read_model_json(filename):
     return model
 
 
-def write_model_json(model, filename):
+# Store a model alongside the root-mean-square values at each epoch
+def write_model_json(model, rmse_arr, filename):
     path = f"models/{filename}.json"
     with open(path, "w") as model_file:
-        json.dump(model, model_file, indent=4)
+        json.dump((model, rmse_arr), model_file, indent=4)
     print(f"Model saved to {path}")
 
 
@@ -55,8 +54,8 @@ def read_river_excel(file):
     df = pd.read_excel(file, header=[0, 1], index_col=0)
     df.columns = df.columns.set_levels(["r", "f", "p"], level=0)
     df.index = df.index.to_series().dt.date
-    df = df.rename_axis(index="date")
-    df = df.rename_axis(columns=["type", "src"])
+    df = df.rename_axis(index="value")
+    df = df.rename_axis(columns=["type", "source"])
 
     # Anonymise data
     # Iterate over columns and rename by type and number
@@ -78,7 +77,14 @@ def read_river_excel(file):
             + [c for c in df if c[1] == "p"]]
     return df
 
-# Cleaning
+
+
+# ======================== DATA PROCESSING ================================
+
+
+
+# CLEANING
+
 # Discard spurious data (set to NaN)
 def remove_spurious_data(df):
     df = df.apply(pd.to_numeric, errors="coerce")
@@ -91,7 +97,9 @@ def remove_spurious_data(df):
 def cull_by_sd(df, val):
     return df[np.abs(df - df.std()) <= df.mean() + val * df.std()]
 
-# ### Exploration
+
+
+# EXPLORATION
 
 # Lag a column by x days
 def lag_column(frame, col, days):
@@ -100,7 +108,9 @@ def lag_column(frame, col, days):
     frame = frame.rename(columns={col[1]: col[1] + f" (t-{days})"})
     return frame
 
-# ### Splitting
+
+
+# SPLITTING
 
 # Split the data into train, validation, test
 # Return a dictionary of the three DataFrames
@@ -123,20 +133,72 @@ def split_data(df, trn_frac, val_frac, test_frac):
 
     return data
 
-# ### Standardisation
+
+
+# STANDARDISATION
 
 # Standardise a split dataset's columns within a range
-# Returns min and max vals of predictand column for destandardisation
-def standardise_data(data, min_range, max_range):
+# Appends rows to the dataset containing standardisation information
+# so we can destandardise the data later
+def std_range(data, min_range, max_range):
+    min_vals = []
+    max_vals = []
+
     for col in data:
         min_val = min(data.loc["trn"][col].min(),
                       data.loc["val"][col].min())
         max_val = max(data.loc["trn"][col].max(),
                       data.loc["val"][col].max())
-        data[col] = data[col].apply(lambda x:
-            (max_range-min_range) * ((x-min_val) / (max_val-min_val) + min_range))
-    return data, min_val, max_val
 
-# De-standardise a value
-def destandardise_val(data, min_range, max_range, min_val, max_val):
-    return ((data-min_range) / max_range) * (max_val - min_val) + min_val
+        data[col] = data[col].apply(lambda x:
+            (max_range-min_range) * (x-min_val) / (max_val-min_val) + min_range)
+
+        min_vals.append(min_val)
+        max_vals.append(max_val)
+
+    # Append DataFrame metadata rows with standardisation information
+    idx_method = [0] * len(min_vals)
+    idx_min_range = [min_range] * len(min_vals)
+    idx_max_range = [max_range] * len(min_vals)
+    meta_std_info = ["method", "min_val", "max_val", "min_range", "max_range"]
+    meta_std_index = pd.MultiIndex.from_product([["meta_std"], meta_std_info], names=["dataset", "value"])
+    meta_df = pd.DataFrame(data=[idx_method, min_vals, max_vals, idx_min_range, idx_max_range],
+                           index=meta_std_index,
+                           columns=data.columns)
+
+    std_data = pd.concat([data, meta_df])
+
+    return std_data
+
+
+# De-standardise an entire DataFrame standardised with std_range
+
+def destd_range(data):
+    destd_data = data.loc[["trn", "val", "test"]]
+    std_metadata = data.loc["meta_std"]
+
+    for col in data:
+
+        min_range = std_metadata[col].loc["min_range"]
+        max_range = std_metadata[col].loc["max_range"]
+        min_val = std_metadata[col].loc["min_val"]
+        max_val = std_metadata[col].loc["max_val"]
+
+        destd_data[col] = destd_data[col].apply(lambda x:
+                (x-min_range) / (max_range-min_range) * (max_val-min_val) + min_val)
+
+    return destd_data
+
+# Destandardise predictand column of DataFrame that was standardised within a range
+# Requires standardisation data from a DataFrame standardised with std_range
+def destd_predictands_range(data, predictand_std_data):
+    min_range = predictand_std_data.loc["min_range"]
+    max_range = predictand_std_data.loc["max_range"]
+    min_val = predictand_std_data.loc["min_val"]
+    max_val = predictand_std_data.loc["max_val"]
+
+    for col in range (len(data.columns)):
+        data.iloc[:, col] = data.iloc[:, col].apply(lambda x:
+            (x-min_range) / (max_range-min_range) * (max_val-min_val) + min_val)
+
+    return data

@@ -117,7 +117,8 @@ def backpropagate(network, row, lrn):
             new_layer.append(new_node)
         new_network.append(new_layer)
 
-    return new_network
+    # Return the updated network and the output value modelled by the old network
+    return new_network, output
 
 
 # Backpropagation: forward pass and backward pass over every row
@@ -125,14 +126,21 @@ def backpropagate(network, row, lrn):
 def train(network, data_frame, lrn, epochs):
 
     data_arr = data_frame.to_numpy()
+    output_arr = []
 
     for epoch in range (1, epochs+1):
+        epoch_outputs = []
+
         for row in data_arr:
-            network = backpropagate(network, row, lrn)
+            network, output = backpropagate(network, row, lrn)
+            epoch_outputs.append(output)
+
+        output_arr.append(epoch_outputs)
+
         if (epoch % 100) == 0:
             print(f"{epoch} epochs done")
 
-    return network
+    return network, output_arr
 
 
 # Get predicted values from a network over a DataFrame
@@ -148,6 +156,6 @@ if __name__ == "__main__":
     data = pd.DataFrame([[1, 0, 1]])
 
     test_network = [[[1, 3, 4], [-6, 6, 5]], [[-3.92, 2, 4]]]
-    test_network = train(test_network, data, 0.1, 10000)
+    test_network, x = train(test_network, data, 0.1, 10000)
 
-    print(predict(test_network, data))
+    print(f"Trained network prediction: {predict(test_network, data)}")
