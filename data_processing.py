@@ -1,11 +1,12 @@
 import numpy as np
 import pandas as pd
 import json
-from enum import Enum
 
-# ### Initialisation
+
+# Initialisation
 
 # Read/write dataset csv files
+
 def read_raw_csv():
     path = "datasets/raw/raw.csv"
     print(f"Loading raw data from {path}")
@@ -29,6 +30,7 @@ def write_processed_csv(data, filename):
 
 
 # Read/write model json files
+
 def read_model_json(filename):
     path = f"models/{filename}.json"
     print(f"Loading model from {path}")
@@ -39,10 +41,10 @@ def read_model_json(filename):
 
 # Store a model alongside the root-mean-square values at each epoch
 # for training and validation data
-def write_model_json(model, rmse_arr, val_rmse_arr, filename):
+def write_model_json(model, nrmse_arr, val_nrmse_arr, filename):
     path = f"models/{filename}.json"
     with open(path, "w") as model_file:
-        json.dump((model, rmse_arr, val_rmse_arr), model_file, indent=4)
+        json.dump((model, nrmse_arr, val_nrmse_arr), model_file, indent=4)
     print(f"Model saved to {path}")
 
 
@@ -73,9 +75,10 @@ def read_river_excel(file):
         i += 1
     df = df.rename(columns=name_dict)
 
-    # Move predictor column to the end
+    # Move predictor column(s) to the end
     df = df[[c for c in df if c[1] != "p"]
             + [c for c in df if c[1] == "p"]]
+
     return df
 
 
@@ -108,6 +111,7 @@ def lag_column(frame, col, days):
     frame[col] = frame[col].shift(days)
     frame = frame.rename(columns={col[1]: col[1] + f" (t-{days})"})
     return frame
+
 
 
 
@@ -172,8 +176,15 @@ def std_range(data, min_range, max_range):
     return std_data
 
 
-# De-standardise an entire DataFrame standardised with std_range
+# Destandardise a single value
+def destd_val(value, std_data):
+    min_range = std_data.loc["min_range"]
+    max_range = std_data.loc["max_range"]
+    min_val = std_data.loc["min_val"]
+    max_val = std_data.loc["max_val"]
+    return (value-min_range) / (max_range-min_range) * (max_val-min_val) + min_val
 
+# De-standardise an entire DataFrame standardised with std_range
 def destd_range(data):
     destd_data = data.loc[["trn", "val", "test"]]
     std_metadata = data.loc["meta_std"]
@@ -186,46 +197,16 @@ def destd_range(data):
         max_val = std_metadata[col].loc["max_val"]
 
         destd_data[col] = destd_data[col].apply(lambda x:
-                (x-min_range) / (max_range-min_range) * (max_val-min_val) + min_val)
+                destd_val(x, min_range, max_range, min_val, max_val))
 
     return destd_data
 
 # Destandardise predictand column of DataFrame that was standardised within a range
 # Requires standardisation data from a DataFrame standardised with std_range
 def destd_predictands_range(data, predictand_std_data):
-    min_range = predictand_std_data.loc["min_range"]
-    max_range = predictand_std_data.loc["max_range"]
-    min_val = predictand_std_data.loc["min_val"]
-    max_val = predictand_std_data.loc["max_val"]
 
     for col in range (len(data.columns)):
         data.iloc[:, col] = data.iloc[:, col].apply(lambda x:
-            (x-min_range) / (max_range-min_range) * (max_val-min_val) + min_val)
+            destd_val(x, predictand_std_data))
 
     return data
-
-
-
-# ====================== ERROR CALCULATION =======================================
-
-# Calculate root-mean-square error at each epoch
-# for a given output array of modelled values
-def rmse_calc(output_arr, data, predictand_std_data):
-    output_df = pd.DataFrame(output_arr)
-    output_df = destd_predictands_range(output_df, predictand_std_data)
-
-    predictand_col = data.loc[:, (slice(None), "p")]
-    predictand_col = destd_predictands_range(predictand_col, predictand_std_data)
-    real_vals = predictand_col.to_numpy()
-
-    rmse_arr = []
-    for epoch in range(len(output_df)):
-        epoch_predictions = output_df.iloc[epoch]
-        total_sq_err = 0
-        for row in range(len(epoch_predictions)):
-            error = real_vals[row][0] - epoch_predictions[row]
-            total_sq_err += error**2
-        mse = total_sq_err / len(epoch_predictions)
-        rmse_arr.append(np.sqrt(mse))
-
-    return rmse_arr

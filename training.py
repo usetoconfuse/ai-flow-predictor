@@ -1,5 +1,5 @@
 import numpy as np
-import pandas as pd
+import data_processing as dp
 
 
 # =========================== INITIALISE A NEURAL NETWORK =======================================
@@ -41,12 +41,20 @@ def sigmoid_derivative(x):
     return x * (1 - x)
 
 
+
+
+
+##################################################################################################################
+####################################### BACKPROPAGATION FUNCTIONS ################################################
+##################################################################################################################
+
+# Forward pass of a network over a given row of data (last value assumed to be predictand)
 def forward_pass(network, row):
     inputs = row[:-1]
     u_vals = []
 
-    # For each row of data, calculate the output value u at each node in a layer
-    # from the values at the nodes in the previous layer
+    # For each node in each layer, calculate u - the output of the activation function applied to the weighted sum
+    # Calculate this from the values at the nodes in the previous layer
     for layer in network:
         outputs = []
         for node in layer:
@@ -68,25 +76,29 @@ def backpropagate(network, row, lrn):
     predictand = row[-1]
 
     # FORWARD PASS
+
+    # Get the weighted sum at each node with the activation function applied
     u_vals = forward_pass(network, row)
 
 
     # BACKWARD PASS
 
-    # Calculate delta_o and squared error
+    # Calculate delta_output
     output = u_vals[-1][0]
     error = predictand - output
     delta_output = error * sigmoid_derivative(output)
 
+    # Iterate through hidden layers in reverse to get deltas at each node
     deltas = [[delta_output]]
-    # Iterate through hidden layers in reverse to get deltas
     for layer in range(len(u_vals) - 2, -1, -1):
-        # Calculate delta_o * f'(S_x) for every node x in the layer
+
+        # Calculate delta_output * f'(S_x) for every node x in the layer
         layer_deltas = [
-            delta_output * sigmoid_derivative(x)
-            for x in u_vals[layer]
+            delta_output * sigmoid_derivative(u)
+            for u in u_vals[layer]
         ]
-        # Then multiply each of these values by w_x,o to get delta_x for every node x in the layer
+
+        # Then multiply each of these values by w_x,output to get delta_x for every node x in the layer
         layer_deltas = np.multiply(layer_deltas, network[layer + 1][0][1:])
 
         # Prepend to deltas list as we are iterating backwards
@@ -109,58 +121,113 @@ def backpropagate(network, row, lrn):
             new_node = [node[0] + lrn * deltas[l][n]]
             for weight in range(1, len(node)):
 
-                # For each input weight on this node from a node in the previous layer,
-                # get the output value u_val of the node in the previous layer
+                # For each input weight on this node from an input node in the previous layer,
+                # get the value input_u_val of the input node (weighted sum with activation function applied)
                 # and use this to build the new set of weights for this node
-                u_val = u_vals[l][weight-1]
-                new_node = new_node + [(node[weight] + lrn * node_delta * u_val)]
+                input_u_val = u_vals[l][weight-1]
+                new_node = new_node + [(node[weight] + lrn * node_delta * input_u_val)]
             new_layer.append(new_node)
         new_network.append(new_layer)
 
-    # Return the updated network and the output value modelled by the old network
-    return new_network, output
+    # Return the updated network
+    return new_network
 
 
+##################################################################################################################
+##################################################################################################################
+##################################################################################################################
+
+
+
+# ====================== ERROR CALCULATION =======================================
+
+# Calculate root-mean-square error of a given set of predicted and actual values
+def rmse_calc(predicted_vals, real_vals):
+    total_sq_err = 0
+
+    for row in range(len(predicted_vals)):
+        error = real_vals[row] - predicted_vals[row]
+        total_sq_err += error**2
+
+    mse = total_sq_err / len(predicted_vals)
+    return np.sqrt(mse)
+
+
+
+# ====================== TRAINING FUNCTIONS =======================================
 
 # Train a network on given training and validation data
-# Store the output for each row every epoch
-def train(network, trn_data, val_data, lrn, epochs):
+def train(network,
+          trn_data_frame,
+          val_data_frame,
+          predictand_std_data,
+          lrn,
+          epochs):
 
-    trn_data_arr = trn_data.to_numpy()
-    trn_output_arr = []
-    val_output_arr = []
+    trn_data_arr = trn_data_frame.to_numpy()
+    trn_real_arr = dp.destd_predictands_range(trn_data_frame, predictand_std_data).to_numpy()
+    trn_nrmse_arr = []
+
+    val_data_arr = val_data_frame.to_numpy()
+    val_real_arr = dp.destd_predictands_range(val_data_frame, predictand_std_data).to_numpy()
+    val_nrmse_arr = []
+
+    prev_nrmse_diff = 99999999999999
 
     for epoch in range (1, epochs+1):
-        epoch_outputs = []
+
+        trn_predictions = destd_predict(network, trn_data_arr, predictand_std_data)
+        trn_nrmse = rmse_calc(trn_predictions, trn_real_arr)
+        trn_nrmse_arr.append(trn_nrmse)
+
+        val_predictions = destd_predict(network, val_data_arr, predictand_std_data)
+        val_nrmse = rmse_calc(val_predictions, val_real_arr)
+        val_nrmse_arr.append(val_nrmse)
+
+        current_nrmse_diff = abs(val_nrmse - trn_nrmse)
+        if current_nrmse_diff > prev_nrmse_diff and epoch > 100:
+            print(f"Terminated early at epoch {epoch}")
+            return network, trn_nrmse_arr, val_nrmse_arr
+
+        prev_nrmse_diff = current_nrmse_diff
 
         for row in trn_data_arr:
-            network, output = backpropagate(network, row, lrn)
-            epoch_outputs.append(output)
+            network = backpropagate(network, row, lrn)
 
-        trn_output_arr.append(epoch_outputs)
 
-        val_output_arr.append(predict(network, val_data))
-
-        if (epoch % 10) == 0:
+        if (epoch % 100) == 0:
             print(f"{epoch} epochs done")
 
-    return network, trn_output_arr, val_output_arr
+    return network, trn_nrmse_arr, val_nrmse_arr
 
 
-# Get predicted values from a network over a DataFrame
-def predict(network, data_frame):
-    data_arr = data_frame.to_numpy()
-    pred_arr = []
+
+# Get predicted values from a network for each row in an array
+def predict(network, data_arr):
+    predicted_arr = []
     for row in data_arr:
-        pred_arr.append(forward_pass(network, row)[-1][0])
-    return pred_arr
+        predicted_arr.append(forward_pass(network, row)[-1][0])
+    return predicted_arr
 
+
+# Predict dataset values and destandardise them
+def destd_predict(network, data_arr, predictand_std_data):
+    destd_predicted_arr = []
+    for row in data_arr:
+        output = forward_pass(network, row)[-1][0]
+        destd_predicted_arr.append(dp.destd_val(output, predictand_std_data))
+    return destd_predicted_arr
 
 
 if __name__ == "__main__":
-    data = pd.DataFrame([[1, 0, 1]])
+    test_data = np.array([[1, 0, 1]])
 
     test_network = [[[1, 3, 4], [-6, 6, 5]], [[-3.92, 2, 4]]]
-    test_network, x, y = train(test_network, data, data,0.1, 10000)
+    for epoch in range(1, 10001):
+        for row in test_data:
+            test_network, x = backpropagate(test_network, row, 0.1)
+        if epoch % 100 == 0:
+            print(f"Epoch: {epoch}")
 
-    print(f"Trained network prediction: {predict(test_network, data)}")
+
+    print(f"Trained network prediction: {predict(test_network, test_data)}")

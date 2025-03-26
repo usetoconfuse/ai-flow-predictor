@@ -1,15 +1,16 @@
 import data_processing as dp
+import numpy as np
 
 # ============================== CONFIG ===============================================
 
-# Range to standard data within
+# Range to standardise data within
 std_range = (0.1, 0.9)
 
 # Proportions of data to split into training, validation, test sets
 dataset_split = (0.6, 0.2, 0.2)
 
 # Name of the file to save the dataset in
-dataset_name = "baseline"
+dataset_name = "first_improved"
 
 
 # ============================= DATA PROCESSING ========================================
@@ -26,6 +27,14 @@ for col in main_df:
     if col[1][0] != "p":
         main_df = dp.lag_column(main_df, col, 1)
 
+# Cull by 5 standard deviations
+main_df = dp.cull_by_sd(main_df, 5)
+
+# Log all flow data
+main_df["f"] = main_df["f"].apply(np.log)
+
+# Sqrt all rainfall data
+main_df["r"] = main_df["r"].apply(np.sqrt)
 
 # Drop rows with empty values
 main_df = main_df.dropna()
