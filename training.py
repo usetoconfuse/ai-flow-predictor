@@ -32,26 +32,40 @@ def initialise_network(inputs, hidden_layers, layer_size):
 
 # ====================== ERROR CALCULATION =======================================
 
-# Calculate root-mean-square error at each epoch
-# for a given output array of modelled values
-def epoch_rmse_calc(predicted_vals, real_vals, p_std_data):
+# Calculate different error functions on an array of predicted values against an array of real values
+# Returns a DataFrame of error function values
+def epoch_error_calcs(predicted_vals, real_vals):
 
-    min_range = p_std_data.loc["min_range"]
-    max_range = p_std_data.loc["max_range"]
-    min_val = p_std_data.loc["min_val"]
-    max_val = p_std_data.loc["max_val"]
+    total_err = 0
     total_sq_err = 0
+    total_mse = 0
+    total_rmse = 0
+    total_nrmse = 0
+
+    real_range = np.max(real_vals) - np.min(real_vals)
 
     for row in range(len(predicted_vals)):
-        pred = predicted_vals[row]
-        destd_pred = (pred-min_range) / (max_range-min_range) * (max_val-min_val) + min_val
-        real = real_vals[row]
-        destd_real = (real-min_range) / (max_range-min_range) * (max_val-min_val) + min_val
-        error = destd_real - destd_pred
-        total_sq_err += error**2
+
+        err = abs(predicted_vals[row] - real_vals[row])
+        total_err += err
+
+        sq_err = err**2
+        total_sq_err += sq_err
 
     mse = total_sq_err / len(predicted_vals)
-    return np.sqrt(mse)
+    total_mse += mse
+
+    rmse = np.sqrt(mse)
+    total_rmse += rmse
+
+    nrmse = rmse / real_range
+    total_nrmse += nrmse
+
+    error_frame = pd.DataFrame(data=[total_err, total_sq_err, total_mse, total_rmse, nrmse],
+                        index=["E", "E^2", "MSE", "RMSE", "NRMSE"],
+                        columns=["Error Values"])
+
+    return error_frame
 
 
 
@@ -87,16 +101,15 @@ def forward_pass(network, row):
     return u_vals
 
 
-# Get predicted values from a network over a DataFrame
-def predict(network, data_frame):
-    data_arr = data_frame.to_numpy()
+# Get predicted values from a network over np array
+def predict(network, data_arr):
     pred_arr = []
     for row in data_arr:
         pred_arr.append(forward_pass(network, row)[-1][0])
     return pred_arr
 
 
-# Backpropagation: forward pass and backward pass over every row
+# Backpropagation: forward pass and backward pass over a row of data
 def backpropagate(network, row, lrn):
     predictand = row[-1]
 
@@ -150,57 +163,39 @@ def backpropagate(network, row, lrn):
             new_layer.append(new_node)
         new_network.append(new_layer)
 
-    # Return the updated network and the output value modelled by the old network
+    # Return the updated network
     return new_network
 
 
-
-# Train a network on given training and validation data
+# Train a network on given training and validation data as np arrays
 # Store the rmse for each epoch
-def train(network, trn_data, val_data, p_std_data, lrn, epochs):
+def train(network, trn_data, val_data, lrn, epochs):
 
-    trn_data_arr = trn_data.to_numpy()
-    val_data_arr = val_data.to_numpy()
-    trn_rmse_arr = []
-    val_rmse_arr = []
-
-    prev_rmse_diff = 9999999999
+    # Store predicted values of all rows before training
+    trn_prediction_arr = [predict(network, trn_data)]
+    val_prediction_arr = [predict(network, val_data)]
 
     for epoch in range (1, epochs+1):
 
-        trn_predicted_vals = predict(network, trn_data)
-        val_predicted_vals = predict(network, val_data)
-
-        trn_real_vals = trn_data_arr[:, -1]
-        val_real_vals = val_data_arr[:, -1]
-
-        trn_rmse = epoch_rmse_calc(trn_predicted_vals, trn_real_vals, p_std_data)
-        val_rmse = epoch_rmse_calc(val_predicted_vals, val_real_vals, p_std_data)
-
-        trn_rmse_arr.append(trn_rmse)
-        val_rmse_arr.append(val_rmse)
-
-        rmse_diff = abs(val_rmse - trn_rmse)
-        if rmse_diff > prev_rmse_diff and epoch > 50:
-            print(f"Terminated early at epoch {epoch}")
-            return network, trn_rmse_arr, val_rmse_arr
-
-        prev_rmse_diff = rmse_diff
-
-        for row in trn_data_arr:
+        for row in trn_data:
             network = backpropagate(network, row, lrn)
+
+        # Store the predicted values of all rows after each epoch
+        epoch_trn_predictions = predict(network, trn_data)
+        epoch_val_predictions = predict(network, val_data)
+
+        trn_prediction_arr.append(epoch_trn_predictions)
+        val_prediction_arr.append(epoch_val_predictions)
 
         if (epoch % 100) == 0:
             print(f"{epoch} epochs done")
 
-    return network, trn_rmse_arr, val_rmse_arr
-
-
+    return network, trn_prediction_arr, val_prediction_arr
 
 if __name__ == "__main__":
-    data = pd.DataFrame([[1, 0, 1]])
+    test_data = np.array([[1, 0, 1], [0, 1, 0]])
 
     test_network = [[[1, 3, 4], [-6, 6, 5]], [[-3.92, 2, 4]]]
-    test_network, x, y = train(test_network, data, data, data,0.1, 10000)
+    test_network, trn_predictions, val_predictions = train(test_network, test_data, test_data, 0.1, 10000)
 
-    print(f"Trained network prediction: {predict(test_network, data)}")
+    print(f"Trained network predictions: {trn_predictions[-1]}")

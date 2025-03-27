@@ -1,3 +1,5 @@
+from ctypes import oledll
+
 import numpy as np
 import pandas as pd
 import json
@@ -140,7 +142,7 @@ def split_data(df, trn_frac, val_frac, test_frac):
 # Standardise a split dataset's columns within a range
 # Appends rows to the dataset containing standardisation information
 # so we can destandardise the data later
-def std_range(data, min_range, max_range):
+def std_range_frame(data, min_range, max_range):
     min_vals = []
     max_vals = []
 
@@ -170,35 +172,39 @@ def std_range(data, min_range, max_range):
 
     return std_data
 
+# De-standardise a single value with given standardisation metadata
+def destd_value(value, std_metadata):
+    method = std_metadata.loc["method"]
+
+    # Standardisation by range
+    if method == 0:
+
+        min_range = std_metadata.loc["min_range"]
+        max_range = std_metadata.loc["max_range"]
+        min_val = std_metadata.loc["min_val"]
+        max_val = std_metadata.loc["max_val"]
+
+        return (value-min_range) / (max_range-min_range) * (max_val-min_val) + min_val
 
 # De-standardise an entire DataFrame standardised with std_range
+def destd_frame(frame):
+    destd_data = frame.loc[["trn", "val", "test"]]
+    std_metadata = frame.loc["meta_std"]
 
-def destd_range(data):
-    destd_data = data.loc[["trn", "val", "test"]]
-    std_metadata = data.loc["meta_std"]
-
-    for col in data:
-
-        min_range = std_metadata[col].loc["min_range"]
-        max_range = std_metadata[col].loc["max_range"]
-        min_val = std_metadata[col].loc["min_val"]
-        max_val = std_metadata[col].loc["max_val"]
-
+    for col in frame:
         destd_data[col] = destd_data[col].apply(lambda x:
-                (x-min_range) / (max_range-min_range) * (max_val-min_val) + min_val)
+        destd_value(x, std_metadata[col]))
 
     return destd_data
 
-# Destandardise predictand column of DataFrame that was standardised within a range
-# Requires standardisation data from a DataFrame standardised with std_range
-def destd_predictands_range(data, predictand_std_data):
-    min_range = predictand_std_data.loc["min_range"]
-    max_range = predictand_std_data.loc["max_range"]
-    min_val = predictand_std_data.loc["min_val"]
-    max_val = predictand_std_data.loc["max_val"]
-
-    for col in range (len(data.columns)):
-        data.iloc[:, col] = data.iloc[:, col].apply(lambda x:
-            (x-min_range) / (max_range-min_range) * (max_val-min_val) + min_val)
-
-    return data
+# Destandardise 2D predictand np array
+# Requires standardisation data from a DataFrame column standardised with std_range
+#np_destd_arr = np.vectorize(destd_value, excluded={1, "std_metadata"})
+def destd_array(array, col_std_metadata):
+    destd_arr = []
+    for col in range(len(array)):
+        destd_arr_col = []
+        for row in range(len(array[col])):
+            destd_arr_col.append(destd_value(array[col][row], col_std_metadata))
+        destd_arr.append(destd_arr_col)
+    return destd_arr
