@@ -1,9 +1,8 @@
-from ctypes import oledll
-
 import numpy as np
 import pandas as pd
 import json
 import ast
+import math
 
 # Initialisation
 
@@ -18,16 +17,20 @@ def read_raw_csv():
 def read_processed_csv(filename):
     path = f"datasets/processed/{filename}.csv"
     print(f"Loading processed data from {path}")
-    frame = pd.read_csv(path, header=[0, 1], index_col=[0, 1])
+    frame = pd.read_csv(path, header=[0, 1], index_col=[0, 1], comment="#")
     data = frame.loc[["trn", "val", "test"]].astype("float")
     metadata = frame.loc["meta_std"]
     return data, metadata
 
 
 
-def write_processed_csv(data, filename):
+def write_processed_csv(data, process, filename):
     path = f"datasets/processed/{filename}.csv"
-    data.to_csv(path)
+    with open(path, "w") as dataset_file:
+        for key, value in process.items():
+            dataset_file.write(f"# {key}: {value}\n")
+        dataset_file.write("#\n")
+    data.to_csv(path, mode="a")
     print(f"Dataset saved to {path}")
 
 
@@ -37,16 +40,16 @@ def read_model_json(filename):
     path = f"models/{filename}.json"
     print(f"Loading model from {path}")
     with open(path) as model_file:
-        model, trn_rmse_arr, val_rmse_arr = json.load(model_file)
-    return model, trn_rmse_arr, val_rmse_arr
+        hyperparams, model, trn_predictions, val_predictions = json.load(model_file)
+    return model, trn_predictions, val_predictions
 
 
 # Store a model alongside the root-mean-square values at each epoch
 # for training and validation data
-def write_model_json(model, trn_predictions, val_predictions, filename):
+def write_model_json(model, trn_predictions, val_predictions, hyperparams, filename):
     path = f"models/{filename}.json"
     with open(path, "w") as model_file:
-        json.dump((model, trn_predictions, val_predictions), model_file, indent=4)
+        json.dump((hyperparams, model, trn_predictions, val_predictions), model_file, indent=4)
     print(f"Model saved to {path}")
 
 
@@ -191,48 +194,51 @@ def std_range_frame(data, min_range, max_range, applied_funcs, inverse_funcs):
     std_data = pd.concat([data, meta_df])
     return std_data
 
-# De-standardise a single value with given column standardisation metadata
-def destd_value(value, col_std_metadata):
+# Unpack standardisation metadata
+def unpack_col_std_metadata(col_std_metadata):
     method = col_std_metadata.loc["method"]
-    funcs = ast.literal_eval(col_std_metadata.loc["funcs"])
-
-    # Standardisation by range
+    min_val = float(col_std_metadata.loc["min_val"])
+    max_val = float(col_std_metadata.loc["max_val"])
+    min_range = float(col_std_metadata.loc["min_range"])
+    max_range = float(col_std_metadata.loc["max_range"])
+    funcs = []
+    if not math.isnan(col_std_metadata.loc["funcs"]):
+        funcs = ast.literal_eval(col_std_metadata.loc["funcs"])
     if method == "range":
+        method_func = destd_value_range
+    return method_func, min_val, max_val, min_range, max_range, funcs
 
-        min_range = float(col_std_metadata.loc["min_range"])
-        max_range = float(col_std_metadata.loc["max_range"])
-        min_val = float(col_std_metadata.loc["min_val"])
-        max_val = float(col_std_metadata.loc["max_val"])
+# De-standardise a single value standardise in a range with given column standardisation metadata
+def destd_value_range(value, min_val, max_val, min_range, max_range, funcs):
 
-        raw_value = (value-min_range) / (max_range-min_range) * (max_val-min_val) + min_val
+    raw_value = (value-min_range) / (max_range-min_range) * (max_val-min_val) + min_val
 
-        for func in funcs:
-            np_func = getattr(np, func)
-            raw_value = np_func(raw_value)
+    for func in funcs:
+        np_func = getattr(np, func)
+        raw_value = np_func(raw_value)
 
-        return raw_value
+    return raw_value
 
-
-
-# De-standardise an entire DataFrame standardised with std_range
+# De-standardise an entire DataFrame
 def destd_frame(frame, std_metadata):
 
     new_frame = frame.copy()
 
     for col in new_frame:
+        destd_func, *std_vals = unpack_col_std_metadata(std_metadata[col])
         new_frame[col] = new_frame[col].apply(lambda x:
-            destd_value(x, std_metadata[col]))
+            destd_func(x, *std_vals))
 
     return new_frame
 
 # Destandardise 2D predictand np array
 # Requires standardisation data from a DataFrame column standardised with std_range
-#np_destd_arr = np.vectorize(destd_value, excluded={1, "std_metadata"})
 def destd_array(array, pred_col_std_metadata):
     destd_arr = []
     for col in range(len(array)):
         destd_arr_col = []
+        destd_func, *std_vals = unpack_col_std_metadata(pred_col_std_metadata)
         for row in range(len(array[col])):
-            destd_arr_col.append(destd_value(array[col][row], pred_col_std_metadata))
+            destd_arr_col.append(destd_func(array[col][row], *std_vals))
         destd_arr.append(destd_arr_col)
     return destd_arr

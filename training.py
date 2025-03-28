@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import sys
+
 # =========================== INITIALISE A NEURAL NETWORK =======================================
 
 # Generate weights of the neural network
@@ -92,9 +92,9 @@ def forward_pass(network, row):
             node_val = node[0] + np.dot(inputs, node[1:])
 
             # Activation function for hidden/output layers
-            node_val = sigmoid(node_val)
+            u = sigmoid(node_val)
 
-            outputs.append(node_val)
+            outputs.append(u)
         inputs = outputs
         u_vals.append(outputs)
 
@@ -125,41 +125,50 @@ def backpropagate(network, row, lrn):
     delta_output = error * sigmoid_derivative(output)
 
     deltas = [[delta_output]]
+
     # Iterate through hidden layers in reverse to get deltas
     for layer in range(len(u_vals) - 2, -1, -1):
-        # Calculate delta_o * f'(S_x) for every node x in the layer
-        layer_deltas = [
-            delta_output * sigmoid_derivative(x)
-            for x in u_vals[layer]
-        ]
-        # Then multiply each of these values by w_x,o to get delta_x for every node x in the layer
-        layer_deltas = np.multiply(layer_deltas, network[layer + 1][0][1:])
+        layer_deltas = []
+
+        # For each node in this layer, calculate the delta as the mean of deltas to each node in the next layer
+        for current_node_pos in range(len(network[layer])):
+            mean_delta = 0
+            u = u_vals[layer][current_node_pos]
+
+            # Delta from this node to each node in the next layer
+            for output_node_pos in range(len(network[layer+1])):
+                weight_to_output = network[layer+1][output_node_pos][current_node_pos+1]
+                delta_output = deltas[0][output_node_pos]
+                mean_delta += weight_to_output * delta_output * sigmoid_derivative(u)
+
+            mean_node_delta = mean_delta / len(network[layer+1])
+            layer_deltas.append(mean_node_delta)
 
         # Prepend to deltas list as we are iterating backwards
         deltas.insert(0, layer_deltas)
 
-    # Prepend input node values for weight adjustment calculations
+    # Prepend input layer values for weight adjustment calculations
     u_vals.insert(0, row[:-1])
 
     # Update weights in the network
     new_network = []
     for l in range(len(network)):
         layer = network[l]
-
         new_layer = []
+
         for n in range(len(layer)):
 
             # For each node in each layer, calculate the adjusted weights
             node = layer[n]
             node_delta = deltas[l][n]
-            new_node = [node[0] + lrn * deltas[l][n]]
+            new_node = [node[0] + lrn * node_delta]
             for weight in range(1, len(node)):
 
                 # For each input weight on this node from a node in the previous layer,
                 # get the output value u_val of the node in the previous layer
                 # and use this to build the new set of weights for this node
-                u_val = u_vals[l][weight-1]
-                new_node = new_node + [(node[weight] + lrn * node_delta * u_val)]
+                u = u_vals[l][weight-1]
+                new_node = new_node + [(node[weight] + lrn * node_delta * u)]
             new_layer.append(new_node)
         new_network.append(new_layer)
 
