@@ -1,0 +1,12 @@
+[
+    {
+        "dataset": "improved",
+        "epochs": 1000,
+        "lrn_param": 0.1,
+        "hidden_layers": 2,
+        "nodes_per_layer": 8,
+        "val_rmse": 58.549016136390485,
+        "activation_function": "leaky_relu"
+    },
+    [
+        

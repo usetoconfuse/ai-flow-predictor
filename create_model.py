@@ -6,17 +6,14 @@ import math
 # ============================== CONFIG ===============================================
 
 # Name of the file to save the model in
-model_name = "baseline_2layers"
-
-# Network will have the same number of nodes per hidden layer and 1 output node
-epochs = 1000
-lrn_param = 0.1
-hidden_layers = 2
+model_name = "improved_leaky"
 
 # Name of the dataset to train the model on
 # Must exist as a csv in /datasets/processed
-dataset_name = "baseline"
+dataset_name = "improved"
 
+activation_function = trn.leaky_relu
+activation_function_derivative = trn.leaky_relu_derivative
 
 
 
@@ -24,6 +21,7 @@ dataset_name = "baseline"
 
 # Load the dataset and standardisation metadata
 dataset, std_metadata = dp.read_processed_csv(dataset_name)
+pred_std_metadata = std_metadata.iloc[:, -1]
 # Reverse applied functions to obtain the real predictand values
 predictand_col = dp.destd_frame(dataset, std_metadata).iloc[:, -1]
 raw_training_predictands = predictand_col.loc["trn"].values
@@ -32,64 +30,75 @@ raw_val_predictands = predictand_col.loc["val"].values
 # Get split datasets and standardisation metadata
 training_data= np.array(dataset.loc[["trn"]])
 validation_data = np.array(dataset.loc[["val"]])
-test_data = np.array(dataset.loc[["test"]])
 input_size = training_data.shape[1] - 1
 
 best_performance = 99999999999
-best_nodes = 0
 best_network = []
 best_trn_predictions = []
 best_val_predictions = []
+hyperparams = {}
 
-#for nodes_per_layer in range(math.floor(input_size/2), input_size*2):
-for nodes_per_layer in range(5,6):
-    # Initialise the neural network
-    network = trn.initialise_network(training_data.shape[1] - 1, hidden_layers, nodes_per_layer)
-    print(f"Network created with {nodes_per_layer} nodes per layer")
+for epochs in [1000]:
+    for lrn_param in [0.1]:
+        for hidden_layers in range(1, 5):
+            for nodes_per_layer in range(math.floor(input_size/2), input_size*2):
+                # Initialise the neural network
+                network = trn.initialise_network(input_size, hidden_layers, nodes_per_layer)
+                print(f"\nepochs: {epochs}"
+                      f"\nlrn_param: {lrn_param}"
+                      f"\nhidden_layers: {hidden_layers}"
+                      f"\nnodes_per_layer: {nodes_per_layer}")
 
-    # Train using backpropagation
-    trained_network, trn_predictions, val_predictions = trn.train(network,
-                                                                  training_data,
-                                                                  validation_data,
-                                                                  lrn_param,
-                                                                  epochs)
+                # Train using backpropagation
+                trained_network, trn_predictions, val_predictions = trn.train(network,
+                                                                              training_data,
+                                                                              validation_data,
+                                                                              lrn_param,
+                                                                              epochs,
+                                                                              activation_function,
+                                                                              activation_function_derivative)
+                print("Training complete")
 
 
 
-    # Compare performance to previous best
+                # Compare performance to previous best
 
-    # Extract validation predictions for each row made by the trained network
-    raw_trained_val_predictions = dp.destd_array(val_predictions, std_metadata.iloc[:, -1])
+                # Extract validation predictions for each row made by the trained network
+                raw_trained_val_predictions = dp.destd_array(val_predictions, pred_std_metadata)
 
-    # Calculate error functions on the final predictions
-    error_vals = trn.epoch_error_calcs(raw_trained_val_predictions[-1], raw_val_predictands)
+                # Calculate error functions on the final predictions
+                rmse = trn.epoch_rmse_calc(raw_trained_val_predictions[-1], raw_val_predictands)
 
-    # Compare to previous best RMSE
-    performance = error_vals.loc["RMSE"].iloc[0]
-    print(f"Validation RMSE: {performance}\n")
-    if performance < best_performance:
+                # Compare to previous best RMSE
+                print(f"Validation RMSE: {rmse}")
+                if rmse < best_performance:
+                    print("New best!")
 
-        # Extract training predictions for each row made by the best network
-        raw_trained_trn_predictions = dp.destd_array(trn_predictions, std_metadata.iloc[:, -1])
+                    # Extract training predictions for each row made by the best network
+                    raw_trained_trn_predictions = dp.destd_array(trn_predictions, pred_std_metadata)
 
-        best_performance = performance
-        best_nodes = nodes_per_layer
-        best_network = trained_network
-        best_trn_predictions = raw_trained_trn_predictions
-        best_val_predictions = raw_trained_val_predictions
+                    best_performance = rmse
+                    best_network = trained_network
+                    best_trn_predictions = raw_trained_trn_predictions
+                    best_val_predictions = raw_trained_val_predictions
 
-print(f"Best network: {best_nodes}")
-print(f"Best network RMSE: {best_performance}\n")
+                    # Hyperparameter metadata for best network
+                    hyperparams = {
+                        "dataset": dataset_name,
+                        "epochs": epochs,
+                        "lrn_param": lrn_param,
+                        "hidden_layers": hidden_layers,
+                        "nodes_per_layer": nodes_per_layer,
+                        "val_rmse": best_performance,
+                        "activation_function": activation_function.__name__,
+                    }
 
-# Hyperparam metadata
-hyperparams = {
-    "dataset": dataset_name,
-    "epochs": epochs,
-    "lrn_param": lrn_param,
-    "hidden_layers": hidden_layers,
-    "nodes_per_layer": best_nodes,
-    "val_rmse": best_performance
-}
+print(f"\nBest network:"
+      f"\n{hyperparams['epochs']} epochs"
+      f"\n{hyperparams['lrn_param']} learning rate"
+      f"\n{hyperparams['hidden_layers']} hidden layers"
+      f"\n{hyperparams['nodes_per_layer']} nodes per layer"
+      f"\n{hyperparams['val_rmse']} validation RMSE\n")
 
 # Save the best model and root-mean-square timelines
 dp.write_model_json(best_network, best_trn_predictions, best_val_predictions, hyperparams, model_name)

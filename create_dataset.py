@@ -4,7 +4,7 @@ import numpy as np
 # ============================== CONFIG ===============================================
 
 # Name of the file to save the dataset in
-dataset_name = "improved"
+dataset_name = "baseline"
 
 
 # Range to standard data within
@@ -14,11 +14,13 @@ std_range = (0.1, 0.9)
 dataset_split = (0.6, 0.2, 0.2)
 
 # Whether to cull by std devs (None = no, else int how many)
-do_sd_culling = 5
+do_sd_culling = None
 
 # Function to apply to each data type along with their inverses
-applied_funcs = {"f": [np.log], "r": [np.sqrt]}
-inverse_funcs = {"f": [np.exp], "r": [np.square]}
+applied_funcs = {}
+inverse_funcs = {}
+#applied_funcs = {"f": [np.log], "r": [np.sqrt]}
+#inverse_funcs = {"f": [np.exp], "r": [np.square]}
 
 
 
@@ -45,8 +47,8 @@ if do_sd_culling:
 main_df = main_df.dropna()
 
 # Drop first 2 flow columns
-main_df = main_df.iloc[:, 2:]
-print(main_df.head())
+#main_df = main_df.iloc[:, 2:]
+#print(main_df.head())
 
 # Split dataset into training, validation and test data at random
 main_df = dp.split_data(main_df, dataset_split[0], dataset_split[1], dataset_split[2])

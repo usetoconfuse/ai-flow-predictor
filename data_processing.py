@@ -201,8 +201,8 @@ def unpack_col_std_metadata(col_std_metadata):
     max_val = float(col_std_metadata.loc["max_val"])
     min_range = float(col_std_metadata.loc["min_range"])
     max_range = float(col_std_metadata.loc["max_range"])
-    funcs = []
-    if not math.isnan(col_std_metadata.loc["funcs"]):
+    funcs = col_std_metadata.loc["funcs"]
+    if type(funcs) == str:
         funcs = ast.literal_eval(col_std_metadata.loc["funcs"])
     if method == "range":
         method_func = destd_value_range
