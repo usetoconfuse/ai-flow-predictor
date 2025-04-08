@@ -213,6 +213,9 @@ def destd_value_range(value, min_val, max_val, min_range, max_range, funcs):
 
     raw_value = (value-min_range) / (max_range-min_range) * (max_val-min_val) + min_val
 
+    # return if funcs = NaN (indicating no functions applied)
+    if type(funcs) == float: return raw_value
+
     for func in funcs:
         np_func = getattr(np, func)
         raw_value = np_func(raw_value)

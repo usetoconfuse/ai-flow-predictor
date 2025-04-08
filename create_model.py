@@ -6,7 +6,7 @@ import math
 # ============================== CONFIG ===============================================
 
 # Name of the file to save the model in
-model_name = "improved_leaky"
+model_name = "improved_1000epochs_diffnodes"
 
 # Name of the dataset to train the model on
 # Must exist as a csv in /datasets/processed
@@ -14,7 +14,10 @@ dataset_name = "improved"
 
 activation_function = trn.leaky_relu
 activation_function_derivative = trn.leaky_relu_derivative
-
+momentum = False
+weight_decay = False
+bold_driver = False
+annealing = False
 
 
 # ============================= MODEL TRAINING ===========================================
@@ -40,7 +43,7 @@ hyperparams = {}
 
 for epochs in [1000]:
     for lrn_param in [0.1]:
-        for hidden_layers in range(1, 5):
+        for hidden_layers in range(1, 2):
             for nodes_per_layer in range(math.floor(input_size/2), input_size*2):
                 # Initialise the neural network
                 network = trn.initialise_network(input_size, hidden_layers, nodes_per_layer)
@@ -56,7 +59,11 @@ for epochs in [1000]:
                                                                               lrn_param,
                                                                               epochs,
                                                                               activation_function,
-                                                                              activation_function_derivative)
+                                                                              activation_function_derivative,
+                                                                              momentum,
+                                                                              weight_decay,
+                                                                              bold_driver,
+                                                                              annealing)
                 print("Training complete")
 
 

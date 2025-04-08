@@ -6,10 +6,10 @@ import pandas as pd
 # Generate weights of the neural network using Xavier normal initialization
 # size: number of nodes on this layer
 # inputs: number of nodes on previous layer
-def weighted_layer(size, inputs, net_inputs):
-    std_dev = np.sqrt(2/(net_inputs+1))
+def weighted_layer(size, inputs):
+    lim = np.sqrt(6/(inputs+size))
     gen = np.random.default_rng()
-    return gen.normal(loc=0, scale=std_dev, size=(size, inputs + 1))
+    return gen.uniform(low=-lim, high=lim, size=(size, inputs+1))
 
 
 # Generate weights for a neural network with a number of hidden layers
@@ -19,12 +19,12 @@ def weighted_layer(size, inputs, net_inputs):
 # the first weight for each node (network[layer][node][0]) is the bias
 def initialise_network(inputs, hidden_layers, layer_size):
     # First hidden layer
-    network = [weighted_layer(layer_size, inputs, inputs)]
+    network = [weighted_layer(layer_size, inputs)]
     # Rest of hidden layers
     for i in range(hidden_layers - 1):
-        network.append(weighted_layer(layer_size, layer_size, inputs))
+        network.append(weighted_layer(layer_size, layer_size))
     # Output layer (1 node)
-    network.append(weighted_layer(1, layer_size, inputs))
+    network.append(weighted_layer(1, layer_size))
 
     return network
 
@@ -142,8 +142,27 @@ def forward_pass(network, row, activation):
 
 
 
+# Get predicted values from a network over np array
+def predict(network, data_arr, activation):
+    pred_arr = []
+    for row in data_arr:
+        pred_arr.append(forward_pass(network, row, activation)[-1][0])
+    return pred_arr
+
+
+
 # Backpropagation: forward pass and backward pass over a row of data
-def backpropagate(network, row, lrn, activation, derivative, net_changes, reg_param, omega):
+def backpropagate(network,
+                  row,
+                  lrn_param,
+                  activation,
+                  derivative,
+                  net_changes=None,
+                  reg_param=None,
+                  omega=None):
+
+
+
     predictand = row[-1]
 
     # FORWARD PASS
@@ -153,9 +172,13 @@ def backpropagate(network, row, lrn, activation, derivative, net_changes, reg_pa
     # BACKWARD PASS
 
     # Calculate delta at the output node
-    # Weight decay: penalise large weights
     output = u_vals[-1][0]
-    error = predictand - output + (reg_param*omega)
+    error = predictand - output
+
+    # Weight decay: penalise large weights
+    if reg_param and omega:
+        error += reg_param*omega
+
     delta_output = error * derivative(output)
 
     deltas = [[delta_output]]
@@ -193,42 +216,33 @@ def backpropagate(network, row, lrn, activation, derivative, net_changes, reg_pa
     for l in range(len(network)):
         layer = network[l]
         new_layer = []
-        layer_changes = []
 
         for n in range(len(layer)):
 
             # For each node in each layer, calculate the adjusted weights
             node = layer[n]
             node_delta = deltas[l][n]
-            bias_change = lrn * node_delta
+            bias_change = lrn_param * node_delta
             bias_momentum = 0.9 * net_changes[l][n][0]
             new_node = [node[0] + bias_change]
-            node_changes = [bias_change + bias_momentum]
+
+            # For each input weight on this node from a node in the previous layer,
+            # get the output value u_val of the node in the previous layer
+            # and use this to build the new set of weights for this node
             for weight in range(1, len(node)):
 
-                # For each input weight on this node from a node in the previous layer,
-                # get the output value u_val of the node in the previous layer
-                # and use this to build the new set of weights for this node
                 u = u_vals[l][weight-1]
-                weight_change = lrn * node_delta * u
+                weight_change = lrn_param * node_delta * u
                 weight_momentum = 0.9 * net_changes[l][n][weight]
                 new_node = new_node + [(node[weight] + weight_change + weight_momentum)]
-                node_changes.append(weight_change + weight_momentum)
+
             new_layer.append(new_node)
-            layer_changes.append(node_changes)
         new_network.append(new_layer)
-        net_changes.append(layer_changes)
 
     # Return the updated network
-    return new_network, net_changes
+    return new_network
 
 
-# Get predicted values from a network over np array
-def predict(network, data_arr, activation):
-    pred_arr = []
-    for row in data_arr:
-        pred_arr.append(forward_pass(network, row, activation)[-1][0])
-    return pred_arr
 
 # Train a network on given training and validation data as np arrays
 # Store the rmse for each epoch
@@ -238,79 +252,100 @@ def train(network,
           lrn,
           epochs,
           activation,
-          derivative):
+          derivative,
+          momentum,
+          weight_decay,
+          bold_driver,
+          annealing):
 
     # Store predicted values of all rows before training
     trn_prediction_arr = [predict(network, trn_data, activation)]
     val_prediction_arr = [predict(network, val_data, activation)]
 
     # Network changes from last epoch - all 0s to begin with
-    net_changes = network.copy()
+    net_changes = []
+    for layer in range(len(network)):
+        net_changes.append(np.zeros_like(network[layer]))
 
     # Initial omega value for weight decay
-    omega = 0
-    n_weights = 0
+    omega = None
+    n_weights = None
+    if weight_decay:
 
-    for layer in range(len(network)):
-        net_changes[layer] = np.subtract(net_changes[layer], net_changes[layer])
+        for layer in range(len(network)):
+            for node in range(len(network[layer])):
+                n_weights += len(network[layer][node])
 
-        for node in range(len(network[layer])):
-            n_weights += len(network[layer][node])
+
 
     # Training RMSE last epoch - for bold driver
-    prev_trn_rmse = 999999999999999
+    if bold_driver:
+        prev_trn_rmse = 999999999999999
 
 
     epoch = 1
     while epoch <= epochs:
 
-        # Regularisation parameter
-        reg_param = 1/(epochs * lrn)
+        reg_param = None
+        if weight_decay:
 
-        # Omega parameter
-        for layer in range(len(network)):
-            for node in range(len(network[layer])):
-                omega += np.sum(np.square(network[layer][node]))
-        omega = omega / (2*n_weights)
+            # Regularisation parameter
+            reg_param = 1/(epochs * lrn)
 
+            # Omega parameter
+            for layer in range(len(network)):
+                for node in range(len(network[layer])):
+                    omega += np.sum(np.square(network[layer][node]))
+            omega = omega / (2*n_weights)
+
+
+        # Iterate over all rows in the dataset for this epoch
+        rows = len(trn_data)
         row = 0
-        while row < len(trn_data):
+        total_delta_u = 0
+        while row < rows:
 
-            new_network, x = backpropagate(network,
+            new_network, delta_u = backpropagate(network,
                                                     trn_data[row],
                                                     lrn,
                                                     activation,
                                                     derivative,
                                                     net_changes,
-                                                    0,
-                                                    0)
-            row += 1
+                                                    reg_param,
+                                                    omega)
+
+            # Batch processing:
+            # Add to the running total of output values for this epoch
+            total_delta_u += delta_u
 
             # Calculate the changes in weights this epoch
-            for layer in range(len(network)):
-                net_changes[layer] = np.subtract(new_network[layer], network[layer])
+            if momentum:
+                for layer in range(len(network)):
+                    net_changes[layer] = np.subtract(new_network[layer], network[layer])
 
             # Bold driver every 2000 epochs
-            #if epoch % 2000 == 0:
-#
-            #    # Calculate training data predictions after this update
-            #    row_trn_predictions = predict(new_network, trn_data, activation)
-#
-            #    # Bold driver: if RMSE of training data has increased by over 1%, undo weight changes and decrease lrn
-            #    row_trn_rmse = epoch_rmse_calc(row_trn_predictions, trn_data[:, -1])
-            #    if row_trn_rmse > prev_trn_rmse * 1.01:
-            #        lrn = max(lrn * 0.7, 0.01)
-            #        print(f"Repeated a row on epoch {epoch}")
-            #    else:
-            #        row += 1
-            #        lrn = min(lrn * 1.05, 0.5)
-#
-            #        # Save updated network
-            #        network = new_network
-            #    prev_trn_rmse = row_trn_rmse
-            #else:
-            #    network = new_network
-            #    row += 1
+            if bold_driver and epoch % 2000 == 0:
+
+                # Calculate training data predictions after this update
+                row_trn_predictions = predict(new_network, trn_data, activation)
+
+                # Bold driver: if RMSE of training data has increased by over 1%, undo weight changes and decrease lrn
+                row_trn_rmse = epoch_rmse_calc(row_trn_predictions, trn_data[:, -1])
+                if row_trn_rmse > prev_trn_rmse * 1.01:
+                    lrn = max(lrn * 0.7, 0.01)
+                    print(f"Repeated a row on epoch {epoch}")
+                else:
+                    row += 1
+                    lrn = min(lrn * 1.05, 0.5)
+
+                    # Save updated network
+                    network = new_network
+                prev_trn_rmse = row_trn_rmse
+            else:
+                network = new_network
+                row += 1
+
+        # Batch processing: Adjust all weights after iterating over all rows
 
 
         # Store the predicted values of all rows after every 100 epochs
