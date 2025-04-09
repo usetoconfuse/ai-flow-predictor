@@ -181,66 +181,49 @@ def backpropagate(network,
 
     delta_output = error * derivative(output)
 
-    deltas = [[delta_output]]
+    # Prepend input layer values for weight adjustment calculations
+    u_vals.insert(0, row[:-1])
 
-    # Iterate through hidden layers in reverse to get deltas
+    network_u_deltas = []
+
+    # Iterate through hidden layers in reverse to get deltas for each node
+    # Calculate delta * u for every bias/weight for batch processing
     for layer in range(len(u_vals) - 2, -1, -1):
-        layer_deltas = []
+        layer_u_deltas = []
         total_layer_delta = 0
 
-        # For each node in this layer, calculate the delta as the mean of deltas to each node in the next layer
-        for current_node_pos in range(len(network[layer])):
+
+        for output_node_pos in range(len(network[layer])):
+
             total_node_delta = 0
-            u = u_vals[layer][current_node_pos]
 
-            # Delta from this node to each node in the next layer
-            for output_node_pos in range(len(network[layer+1])):
-                weight_to_output = network[layer+1][output_node_pos][current_node_pos+1]
-                total_node_delta += weight_to_output * delta_output * derivative(u)
+            bias_u_delta = delta_output * network[layer][output_node_pos][0]
+            node_u_deltas = [bias_u_delta]
 
-            mean_node_delta = total_node_delta
-            layer_deltas.append(mean_node_delta)
+            # For each input node in the previous layer,
+            # calculate the delta as the mean of deltas to each node in this layer
+            for input_node_pos in range(len(u_vals[layer])):
+
+                u = u_vals[layer][input_node_pos]
+
+                weight_to_output = network[layer][output_node_pos][input_node_pos+1]
+                weight_delta = weight_to_output * delta_output * derivative(u)
+                total_node_delta += weight_delta
+                node_u_deltas.append(weight_delta * u)
+
+            mean_node_delta = total_node_delta / len(network[layer])
             total_layer_delta += mean_node_delta
 
+            layer_u_deltas.append(node_u_deltas)
+
         # Prepend to deltas list as we are iterating backwards
-        deltas.insert(0, layer_deltas)
+        network_u_deltas.insert(0, layer_u_deltas)
 
         # The output delta for the next layer is the sum of the mean deltas of all nodes in this layer
         delta_output = total_layer_delta
 
-    # Prepend input layer values for weight adjustment calculations
-    u_vals.insert(0, row[:-1])
-
-    # Update weights in the network
-    new_network = []
-    for l in range(len(network)):
-        layer = network[l]
-        new_layer = []
-
-        for n in range(len(layer)):
-
-            # For each node in each layer, calculate the adjusted weights
-            node = layer[n]
-            node_delta = deltas[l][n]
-            bias_change = lrn_param * node_delta
-            bias_momentum = 0.9 * net_changes[l][n][0]
-            new_node = [node[0] + bias_change]
-
-            # For each input weight on this node from a node in the previous layer,
-            # get the output value u_val of the node in the previous layer
-            # and use this to build the new set of weights for this node
-            for weight in range(1, len(node)):
-
-                u = u_vals[l][weight-1]
-                weight_change = lrn_param * node_delta * u
-                weight_momentum = 0.9 * net_changes[l][n][weight]
-                new_node = new_node + [(node[weight] + weight_change + weight_momentum)]
-
-            new_layer.append(new_node)
-        new_network.append(new_layer)
-
-    # Return the updated network
-    return new_network
+    # Return u * delta for each bias/weight in the network
+    return network_u_deltas
 
 
 
@@ -249,23 +232,26 @@ def backpropagate(network,
 def train(network,
           trn_data,
           val_data,
-          lrn,
+          lrn_param,
           epochs,
           activation,
           derivative,
-          momentum,
-          weight_decay,
-          bold_driver,
-          annealing):
+          momentum=True,
+          weight_decay=None,
+          bold_driver=None,
+          annealing=None):
 
     # Store predicted values of all rows before training
     trn_prediction_arr = [predict(network, trn_data, activation)]
     val_prediction_arr = [predict(network, val_data, activation)]
 
-    # Network changes from last epoch - all 0s to begin with
-    net_changes = []
+    # Delta * u for each weight/bias at each data point for batch processing
+    total_u_deltas = []
     for layer in range(len(network)):
-        net_changes.append(np.zeros_like(network[layer]))
+        total_u_deltas.append(np.zeros_like(network[layer]))
+
+    # Network changes from last epoch for momentum
+    net_changes = total_u_deltas.copy()
 
     # Initial omega value for weight decay
     omega = None
@@ -279,18 +265,18 @@ def train(network,
 
 
     # Training RMSE last epoch - for bold driver
-    if bold_driver:
-        prev_trn_rmse = 999999999999999
+    prev_trn_rmse = 999999999999999
 
 
     epoch = 1
+    rows = len(trn_data)
     while epoch <= epochs:
 
         reg_param = None
         if weight_decay:
 
             # Regularisation parameter
-            reg_param = 1/(epochs * lrn)
+            reg_param = 1/(epochs * lrn_param)
 
             # Omega parameter
             for layer in range(len(network)):
@@ -300,63 +286,105 @@ def train(network,
 
 
         # Iterate over all rows in the dataset for this epoch
-        rows = len(trn_data)
         row = 0
-        total_delta_u = 0
         while row < rows:
 
-            new_network, delta_u = backpropagate(network,
-                                                    trn_data[row],
-                                                    lrn,
-                                                    activation,
-                                                    derivative,
-                                                    net_changes,
-                                                    reg_param,
-                                                    omega)
+            delta_u_network = backpropagate(network,
+                                            trn_data[row],
+                                            lrn_param,
+                                            activation,
+                                            derivative,
+                                            net_changes,
+                                            reg_param,
+                                            omega)
 
             # Batch processing:
             # Add to the running total of output values for this epoch
-            total_delta_u += delta_u
+            for layer in range(len(total_u_deltas)):
+                total_u_deltas[layer] = np.add(total_u_deltas[layer], delta_u_network[layer])
 
-            # Calculate the changes in weights this epoch
-            if momentum:
-                for layer in range(len(network)):
-                    net_changes[layer] = np.subtract(new_network[layer], network[layer])
 
             # Bold driver every 2000 epochs
             if bold_driver and epoch % 2000 == 0:
 
                 # Calculate training data predictions after this update
-                row_trn_predictions = predict(new_network, trn_data, activation)
+                row_trn_predictions = predict(network, trn_data, activation)
 
                 # Bold driver: if RMSE of training data has increased by over 1%, undo weight changes and decrease lrn
                 row_trn_rmse = epoch_rmse_calc(row_trn_predictions, trn_data[:, -1])
                 if row_trn_rmse > prev_trn_rmse * 1.01:
-                    lrn = max(lrn * 0.7, 0.01)
+                    lrn_param = max(lrn_param * 0.7, 0.01)
                     print(f"Repeated a row on epoch {epoch}")
                 else:
                     row += 1
-                    lrn = min(lrn * 1.05, 0.5)
+                    lrn_param = min(lrn_param * 1.05, 0.5)
 
-                    # Save updated network
-                    network = new_network
                 prev_trn_rmse = row_trn_rmse
             else:
-                network = new_network
                 row += 1
 
-        # Batch processing: Adjust all weights after iterating over all rows
+
+        # --------------- END ITERATION OVER ROWS ----------------------
+
+        # Batch processing:
+        # Adjust all weights after iterating over all rows
+        mean_u_deltas = total_u_deltas
+        for layer in range(len(mean_u_deltas)):
+            mean_u_deltas[layer] = np.divide(mean_u_deltas[layer], np.array(rows))
+
+        new_network = []
+        for l in range(len(network)):
+            layer = network[l]
+            new_layer = []
+
+            for n in range(len(layer)):
+
+                # For each node in each layer, calculate the adjusted weights
+                node = layer[n]
+                mean_node_u_deltas = mean_u_deltas[l][n]
+                bias_change = lrn_param * mean_node_u_deltas[0]
+                if momentum:
+                    bias_momentum = 0.9 * net_changes[l][n][0]
+                    bias_change += bias_momentum
+                new_node = [(node[0] + bias_change)]
+
+                for weight in range(1, len(node)):
+
+                    weight_change = lrn_param * mean_node_u_deltas[weight]
+                    if momentum:
+                        weight_momentum = 0.9 * net_changes[l][n][weight]
+                        weight_change += weight_momentum
+                    new_node = new_node + [(node[weight] + weight_change)]
+
+                new_layer.append(new_node)
+            new_network.append(new_layer)
+
+
+
+        # Calculate the changes in weights this epoch
+        if momentum:
+            for layer in range(len(network)):
+                net_changes[layer] = np.subtract(new_network[layer], network[layer])
+
+
+        # Save the updated network
+        network = new_network
 
 
         # Store the predicted values of all rows after every 100 epochs
-
-        if (epoch % 100) == 0:
+        if (epoch % 1000) == 0:
             epoch_trn_predictions = predict(network, trn_data, activation)
             epoch_val_predictions = predict(network, val_data, activation)
 
             trn_prediction_arr.append(epoch_trn_predictions)
             val_prediction_arr.append(epoch_val_predictions)
             print(f"{epoch} epochs done")
+
+
+
+        # Reset total u * deltas for next epoch
+        for layer in range(len(total_u_deltas)):
+            total_u_deltas[layer] = np.subtract(total_u_deltas[layer], total_u_deltas[layer])
 
         epoch += 1
 

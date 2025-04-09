@@ -6,11 +6,11 @@ import math
 # ============================== CONFIG ===============================================
 
 # Name of the file to save the model in
-model_name = "improved_1000epochs_diffnodes"
+model_name = "baseline_batch_test"
 
 # Name of the dataset to train the model on
 # Must exist as a csv in /datasets/processed
-dataset_name = "improved"
+dataset_name = "baseline"
 
 activation_function = trn.leaky_relu
 activation_function_derivative = trn.leaky_relu_derivative
@@ -41,8 +41,8 @@ best_trn_predictions = []
 best_val_predictions = []
 hyperparams = {}
 
-for epochs in [1000]:
-    for lrn_param in [0.1]:
+for epochs in [10000]:
+    for lrn_param in [0.001, 0.01]:
         for hidden_layers in range(1, 2):
             for nodes_per_layer in range(math.floor(input_size/2), input_size*2):
                 # Initialise the neural network
