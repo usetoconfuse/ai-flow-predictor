@@ -6,7 +6,7 @@ import math
 # ============================== CONFIG ===============================================
 
 # Name of the file to save the model in
-model_name = "improved_1000epochs_diffnodes"
+model_name = "improved_annealing"
 
 # Name of the dataset to train the model on
 # Must exist as a csv in /datasets/processed
@@ -14,10 +14,10 @@ dataset_name = "improved"
 
 activation_function = trn.leaky_relu
 activation_function_derivative = trn.leaky_relu_derivative
-momentum = False
-weight_decay = False
+momentum = True
+weight_decay = True
 bold_driver = False
-annealing = False
+annealing = True
 
 
 # ============================= MODEL TRAINING ===========================================
@@ -41,7 +41,7 @@ best_trn_predictions = []
 best_val_predictions = []
 hyperparams = {}
 
-for epochs in [1000]:
+for epochs in [10000]:
     for lrn_param in [0.1]:
         for hidden_layers in range(1, 2):
             for nodes_per_layer in range(math.floor(input_size/2), input_size*2):

@@ -158,7 +158,7 @@ def backpropagate(network,
                   activation,
                   derivative,
                   net_changes=None,
-                  reg_param=None,
+                  beta=None,
                   omega=None):
 
 
@@ -175,9 +175,9 @@ def backpropagate(network,
     output = u_vals[-1][0]
     error = predictand - output
 
-    # Weight decay: penalise large weights
-    if reg_param and omega:
-        error += reg_param*omega
+    # Weight decay: penalise large weights on output node
+    if beta and omega:
+        error += beta * omega
 
     delta_output = error * derivative(output)
 
@@ -224,7 +224,7 @@ def backpropagate(network,
             node_delta = deltas[l][n]
             bias_change = lrn_param * node_delta
             bias_momentum = 0.9 * net_changes[l][n][0]
-            new_node = [node[0] + bias_change]
+            new_node = [node[0] + bias_change + bias_momentum]
 
             # For each input weight on this node from a node in the previous layer,
             # get the output value u_val of the node in the previous layer
@@ -249,7 +249,7 @@ def backpropagate(network,
 def train(network,
           trn_data,
           val_data,
-          lrn,
+          lrn_param,
           epochs,
           activation,
           derivative,
@@ -271,6 +271,8 @@ def train(network,
     omega = None
     n_weights = None
     if weight_decay:
+        n_weights = 0
+        omega = 0
 
         for layer in range(len(network)):
             for node in range(len(network[layer])):
@@ -286,11 +288,17 @@ def train(network,
     epoch = 1
     while epoch <= epochs:
 
-        reg_param = None
+        retries = 0
+
+        # Annealing: automatically adjust wait based on epoch from 0.1 to 0.01
+        if annealing:
+            lrn_param = 0.01 + ((0.1 - 0.01) * (1 - (1 / (1 + (pow(np.e, 10 - ((20 * epoch) / epochs)))))))
+
+        beta = None
         if weight_decay:
 
             # Regularisation parameter
-            reg_param = 1/(epochs * lrn)
+            beta = 1/(epoch * lrn_param)
 
             # Omega parameter
             for layer in range(len(network)):
@@ -305,37 +313,42 @@ def train(network,
         while row < rows:
 
             new_network = backpropagate(network,
-                                                    trn_data[row],
-                                                    lrn,
-                                                    activation,
-                                                    derivative,
-                                                    net_changes,
-                                                    reg_param,
-                                                    omega)
+                                        trn_data[row],
+                                        lrn_param,
+                                        activation,
+                                        derivative,
+                                        net_changes,
+                                        beta,
+                                        omega)
+
+
 
             # Calculate the changes in weights this epoch
             if momentum:
                 for layer in range(len(network)):
                     net_changes[layer] = np.subtract(new_network[layer], network[layer])
 
-            # Bold driver every 2000 epochs
-            if bold_driver and epoch % 2000 == 0:
+
+
+            # Bold driver every 200 epochs
+            if bold_driver and epoch % 200 == 0:
 
                 # Calculate training data predictions after this update
                 row_trn_predictions = predict(new_network, trn_data, activation)
 
-                # Bold driver: if RMSE of training data has increased by over 1%, undo weight changes and decrease lrn
+                # Bold driver: if RMSE of training data has increased by over 4%,
+                # undo weight changes and decrease lrn
                 row_trn_rmse = epoch_rmse_calc(row_trn_predictions, trn_data[:, -1])
-                if row_trn_rmse > prev_trn_rmse * 1.01:
-                    lrn = max(lrn * 0.7, 0.01)
-                    print(f"Repeated a row on epoch {epoch}")
+                if row_trn_rmse > prev_trn_rmse * 1.04 and lrn_param > 0.01:
+                    lrn_param = max(lrn_param * 0.7, 0.01)
+                    retries += 1
                 else:
                     row += 1
-                    lrn = min(lrn * 1.05, 0.5)
+                    lrn_param = min(lrn_param * 1.05, 0.5)
 
                     # Save updated network
                     network = new_network
-                prev_trn_rmse = row_trn_rmse
+                    prev_trn_rmse = row_trn_rmse
             else:
                 network = new_network
                 row += 1
@@ -349,6 +362,9 @@ def train(network,
             trn_prediction_arr.append(epoch_trn_predictions)
             val_prediction_arr.append(epoch_val_predictions)
             print(f"{epoch} epochs done")
+
+        if bold_driver and epoch % 200 == 0:
+            print(f"Retried rows {retries} times on epoch {epoch}")
 
         epoch += 1
 
