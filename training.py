@@ -302,10 +302,9 @@ def train(network,
         # Iterate over all rows in the dataset for this epoch
         rows = len(trn_data)
         row = 0
-        total_delta_u = 0
         while row < rows:
 
-            new_network, delta_u = backpropagate(network,
+            new_network = backpropagate(network,
                                                     trn_data[row],
                                                     lrn,
                                                     activation,
@@ -313,10 +312,6 @@ def train(network,
                                                     net_changes,
                                                     reg_param,
                                                     omega)
-
-            # Batch processing:
-            # Add to the running total of output values for this epoch
-            total_delta_u += delta_u
 
             # Calculate the changes in weights this epoch
             if momentum:
@@ -344,9 +339,6 @@ def train(network,
             else:
                 network = new_network
                 row += 1
-
-        # Batch processing: Adjust all weights after iterating over all rows
-
 
         # Store the predicted values of all rows after every 100 epochs
 
